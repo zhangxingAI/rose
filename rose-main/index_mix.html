@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>七夕快乐</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000;
+    overscroll-behavior: none; user-select: none; -webkit-user-select: none;
+  }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    touch-action: none;
+  }
+  .stage {
+    position: fixed; inset: 0;
+    background: #000; overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  /* 暗角：原视频四角压得很暗，中上偏亮 */
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse at 50% 44%, transparent 0 46%, rgba(0, 0, 2, .24) 76%, rgba(0, 0, 2, .68) 100%);
+  }
+  .caption {
+    position: absolute; left: 50%; bottom: 11%;
+    width: 88%; transform: translateX(-50%);
+    text-align: center; pointer-events: none; opacity: 0;
+  }
+  /* 宽屏时立方体几乎顶到底边，文案得贴得更低才不压到花茎 */
+  @media (min-aspect-ratio: 1/1) {
+    .caption { bottom: 3%; }
+  }
+  .caption.show { opacity: 1; transition: opacity 2s ease; }
+  .caption h1 {
+    margin: 0; color: #f7efec; font-size: clamp(15px, 3vw, 24px); font-weight: 300;
+    letter-spacing: .3em; text-indent: .3em;
+    text-shadow: 0 0 18px rgba(255, 140, 120, .35);
+  }
+  .caption .name {
+    margin: 7px 0 0; color: #f0b8ac; font-size: clamp(12px, 2.3vw, 17px);
+    letter-spacing: .42em; text-indent: .42em; font-weight: 300;
+  }
+  .caption .sub {
+    margin: 9px 0 0; color: rgba(240, 226, 220, .5); font-size: clamp(10px, 1.7vw, 13px);
+    letter-spacing: .2em; text-indent: .2em;
+  }
+  #gate {
+    position: fixed; inset: 0; z-index: 8;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 45%, rgba(60, 14, 10, .22), rgba(0, 0, 0, .82) 72%);
+    cursor: pointer;
+  }
+  #gate.gone { opacity: 0; pointer-events: none; transition: opacity .9s ease; }
+  #gate h2 {
+    margin: 0; color: #f4ebe8; font-size: clamp(21px, 4.8vw, 38px); font-weight: 300;
+    letter-spacing: .34em; text-indent: .34em;
+  }
+  #gate p { margin: 15px 0 0; color: rgba(236, 208, 200, .62); font-size: 13px; letter-spacing: .1em; }
+  .pulse {
+    margin-top: 30px; width: 7px; height: 7px; border-radius: 50%;
+    background: #f0705c; box-shadow: 0 0 16px #e0503c;
+    animation: pulse 1.9s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { transform: scale(1.5); opacity: .8; } }
+  .wechat-hint {
+    position: fixed; z-index: 6;
+    top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    max-width: min(92vw, 420px); padding: 7px 12px; border-radius: 999px;
+    color: rgba(255, 226, 218, .5); font-size: 11px; letter-spacing: .08em; text-align: center;
+    background: rgba(10, 4, 3, .5); border: 1px solid rgba(180, 80, 60, .2);
+    opacity: 0; pointer-events: none;
+  }
+  .wechat-hint.show { opacity: 1; }
+  .replay {
+    position: fixed; z-index: 6;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    padding: 9px 18px; border-radius: 999px; font-size: 12px; letter-spacing: .2em; text-indent: .2em;
+    color: rgba(248, 224, 216, .7); background: rgba(24, 8, 6, .5);
+    border: 1px solid rgba(200, 90, 70, .26); opacity: 0; pointer-events: none;
+    transition: opacity .8s ease;
+  }
+  .replay.show { opacity: 1; pointer-events: auto; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <canvas id="cv"></canvas>
+  <div class="vignette"></div>
+  <div class="caption" id="caption">
+    <h1 id="titleText">七夕快乐</h1>
+    <p class="name" id="nameText">徐雪莹</p>
+    <p class="sub" id="subText">一束不会凋谢的玫瑰</p>
+  </div>
+</div>
+
+<div class="wechat-hint" id="wechatHint">若画面空白：右上角 ··· → 在浏览器打开</div>
+
+<div id="gate">
+  <h2>点一下，花开</h2>
+  <p id="gateSub">一束不会凋谢的玫瑰</p>
+  <div class="pulse"></div>
+</div>
+
+<div class="replay" id="replay">再绽放一次</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================================================
+     文案：只改这里
+     ============================================================ */
+  var CONFIG = {
+    name: "徐雪莹",
+    title: "七夕快乐",
+    subtitle: "一束不会凋谢的玫瑰"
+  };
+
+  /* ============================================================
+     色板：全部取自 roseflower2.jpg
+     按材质分割（红玫瑰 / 蓝星花 / 绿叶 / 牛皮纸），再按亮度分位取中位色，
+     所以"越亮偏什么色"这层关系是照片里的真实关系，不是手调出来的。
+     每张表都从暗到亮排好序，用 0~1 的位置去索引。
+     ============================================================ */
+  var PAL_ROSE = [64,2,5, 79,2,8, 87,1,13, 92,2,15, 95,4,17, 100,6,20, 104,8,24,
+                  109,12,28, 116,16,33, 124,21,38, 132,27,45, 142,34,52,
+                  153,42,61, 167,58,73];
+  var PAL_STAR = [110,117,130, 122,128,139, 133,138,150, 143,149,161, 154,161,173,
+                  166,172,185, 176,183,196, 186,194,206, 196,205,216, 207,215,226,
+                  216,224,235, 225,235,245, 235,244,251, 244,250,255];
+  var PAL_LEAF = [39,48,9, 49,59,18, 57,69,27, 66,77,36, 72,86,43, 78,94,48,
+                  83,100,54, 89,105,61, 95,111,67, 100,117,72, 107,124,79,
+                  114,131,86, 123,141,94, 141,154,108];
+  var PAL_WRAP = [133,117,90, 151,136,110, 165,148,123, 176,159,134, 184,167,143,
+                  191,174,151, 196,179,156, 201,184,161, 205,189,166, 210,193,171,
+                  214,198,176, 220,204,182, 228,213,191, 242,229,209];
+  var RGB = [0, 0, 0];
+  // 加色合成会把颜色往白推：同一种色叠得越厚越亮、也越淡，
+  // 所以直接照搬照片的深红，密处只会变成粉。
+  // 先把消色成分（三通道最小值）扣掉，让单颗接近纯色，
+  // 亮度交给密度去堆——这样厚的地方才还是深红而不是粉白。
+  function purify(p, k) {
+    var mn = p[0] < p[1] ? (p[0] < p[2] ? p[0] : p[2])
+                         : (p[1] < p[2] ? p[1] : p[2]);
+    mn *= k;
+    p[0] -= mn; p[1] -= mn; p[2] -= mn;
+    return p;
+  }
+  // u 是 0~1 的位置（0 = 表里最暗那端）。相邻两档线性插值——
+  // 不插值的话 14 档会在花瓣上分出看得见的色带。
+  function palAt(pal, u) {
+    var n = pal.length / 3 - 1;
+    if (u < 0) u = 0; else if (u > 1) u = 1;
+    var f = u * n, i = f | 0;
+    if (i >= n) i = n - 1;
+    var w = f - i, j = i * 3, k = j + 3;
+    RGB[0] = pal[j] + (pal[k] - pal[j]) * w;
+    RGB[1] = pal[j + 1] + (pal[k + 1] - pal[j + 1]) * w;
+    RGB[2] = pal[j + 2] + (pal[k + 2] - pal[j + 2]) * w;
+    return RGB;
+  }
+
+  /* ============================================================
+     常量
+     ============================================================ */
+  var TAU = Math.PI * 2;
+  // 照片是室内欠曝的，色板整体偏暗，加色渲染前统一提一档。
+  // 四类分开给：它们在原照片里的曝光差得很远。
+  var GAIN_ROSE = 1.15;
+  var GAIN_STAR = 1.20;
+  var GAIN_LEAF = 1.70;
+  var GAIN_WRAP = 1.05;
+
+  // 花球：花头分布在一个略扁的球冠上
+  var DOME_Y   = 0.24;    // 花球中心高度
+  var DOME_R   = 0.95;    // 花球水平半径
+  var DOME_FY  = 0.86;    // 竖向压扁
+  var CAP      = 2.23;    // 球冠张角，> pi/2 表示花包到侧下方
+  var ROSES    = 21;      // 花头数量
+  var HEAD_R   = 0.205;   // 单朵花头半径。太大就糊成一片，分不出一朵一朵
+  var ROSE_GAIN = 0.95;   // 花瓣亮度系数
+
+  // 包装纸锥
+  var WRAP_TOP = -0.20;
+  var WRAP_TIP = -0.60;
+  var WRAP_R   = 0.29;    // 纸口半径
+  var FOLDS    = 8;       // 折面数
+
+  // 相机
+  var FOV      = 7.0;
+  var ELEV     = 0.200;      // 俯角
+  var SPIN     = TAU / 46;   // 每秒转动弧度
+
+  // 渲染
+  var INT      = 0.950;   // 单粒子加色强度：调高会整团糊成死白
+  var SPLAT    = 0.56;    // 单粒子铺开的总能量。1.0 = 只是把一个像素摊成 2x2；
+                          // 调大整团更密实，调小回到噼里啪啦的噪点
+  var EXT      = 0.0042;  // 红色消光强度：越厚的红越吃掉绿蓝，红才压得深。
+                          // 调 0 会退回叠到发粉，调大红会发黑
+  var KNEE     = 0.00455; // 软削波上限的倒数（1/220）：累积到 220 就不再往上叠。
+                          // 上一版没有真上限，几百颗叠完都收敛到同一个值，
+                          // 结果调曝光完全无效、花瓣明暗也被压平
+  var FADE     = 0.78;    // 余晖衰减，越大拖尾越短
+  var BLOOM    = 0.26;    // 辉光强度
+  var BUFDIV   = 1;       // 粒子缓冲降采样档位（1 = 半分辨率）。
+                          // 调回 0 会变回一层稀疏噪点，别动
+  var RISE     = 1.90;    // 单粒子汇聚时长
+  var JMASK    = 4095;
+
+  // 黑场节奏：只播一次，绽放后定妆停留；手动重开才走黑场淡入
+  var LOOP_IDLE = 0;      // 定妆后静置秒数。0 = 不自动重播
+  var FADE_SEC  = 1.1;    // 淡入/淡出时长（秒）
+
+  var prefersReduced = window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var isWeChat = /MicroMessenger/i.test(navigator.userAgent);
+  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  // Streamlit 外壳把页面塞进 iframe（srcdoc），里面读不到外层地址栏的 hash，
+  // 所以允许外壳先写一个 window.__ROSE_HASH 进来。直接开 index.html 时它是空的。
+  var hash = (window.__ROSE_HASH || location.hash || "").toLowerCase();
+  var AUTOPLAY = hash.indexOf("play") >= 0;
+  var STILL = hash.indexOf("still") >= 0;
+
+  /* ============================================================
+     DOM
+     ============================================================ */
+  var stage = document.getElementById("stage");
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d", { alpha: false });
+  var gate = document.getElementById("gate");
+  var caption = document.getElementById("caption");
+  var replay = document.getElementById("replay");
+  var wechatHint = document.getElementById("wechatHint");
+
+  document.getElementById("titleText").textContent = CONFIG.title;
+  document.getElementById("nameText").textContent = CONFIG.name;
+  document.getElementById("subText").textContent = CONFIG.subtitle;
+  document.getElementById("gateSub").textContent = CONFIG.subtitle;
+  document.title = CONFIG.title + " · " + CONFIG.name;
+  if (isWeChat) wechatHint.classList.add("show");
+
+  /* ============================================================
+     工具
+     ============================================================ */
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+  /* ============================================================
+     几何：一束玫瑰
+     ============================================================ */
+  var P = null;
+  var COUNT = 0;
+  // 标记"周围飘的粒子"。这些在渲染时会额外走一段随时间变化的漂移 + 明灭，
+  // 花球本体不动，只有外围在飘——静止的尘埃看着像画上去的。
+  var AMB_ON = 0;
+
+  function budget() {
+    // 手机上缓冲被压到 46 万像素，粒子数得跟着提才有和桌面一样的密度。
+    // 真跑不动的机器由 render 末尾的自适应降档兜底。
+    if (prefersReduced) return 95000;
+    if (isWeChat && isMobile) return 215000;
+    if (isMobile) return 240000;
+    return 300000;
+  }
+
+  function buildBouquet(N) {
+    var rng = mulberry32(20260819);
+    var tx = new Float32Array(N), ty = new Float32Array(N), tz = new Float32Array(N);
+    var ox = new Float32Array(N), oy = new Float32Array(N), oz = new Float32Array(N);
+    var cr = new Float32Array(N), cg = new Float32Array(N), cb = new Float32Array(N);
+    var dl = new Float32Array(N), bg = new Uint8Array(N), am = new Uint8Array(N);
+    var n = 0;
+
+    function push(x, y, z, r, g, b, big) {
+      if (n >= N) return;
+      am[n] = AMB_ON;
+      tx[n] = x; ty[n] = y; tz[n] = z;
+      cr[n] = r; cg[n] = g; cb[n] = b;
+      bg[n] = big ? 1 : 0;
+      var d = Math.sqrt(x * x + (y - 0.12) * (y - 0.12) + z * z);
+      dl[n] = 0.10 + d * 1.55 + rng() * 0.55;
+      var a = Math.atan2(z, x) + 1.25 + rng() * 0.6;
+      var rr = 1.9 + rng() * 1.6;
+      ox[n] = Math.cos(a) * rr;
+      oy[n] = -0.95 + rng() * 2.4 + y * 0.3;
+      oz[n] = Math.sin(a) * rr;
+      n++;
+    }
+
+    // 球冠上的方向，用黄金角均匀铺开
+    function capDir(i, total, jitter) {
+      var t = (i + 0.5) / total;
+      var cp = 1 - t * (1 - Math.cos(CAP));
+      var ph = Math.acos(clamp(cp, -1, 1));
+      var th = i * 2.39996323;
+      var dx = Math.sin(ph) * Math.cos(th);
+      var dy = Math.cos(ph);
+      var dz = Math.sin(ph) * Math.sin(th);
+      if (jitter) {
+        dx += (rng() - 0.5) * jitter;
+        dy += (rng() - 0.5) * jitter * 0.7;
+        dz += (rng() - 0.5) * jitter;
+      }
+      var l = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      return [dx / l, dy / l, dz / l];
+    }
+
+    function domePos(d, k) {
+      // 低频起伏，让花球轮廓是坑坑洼洼的花团而不是一个光滑的球
+var lump = 1
+        + 0.12 * Math.sin(5.1 * d[0] + 3.3 * d[2] + 1.1) * Math.cos(4.4 * d[1] - 1.7)
+        + 0.06 * Math.sin(9.7 * d[1] + 6.1 * d[0] - 2.3) * Math.cos(8.3 * d[2] + 0.7);
+      k *= lump;
+      return [d[0] * DOME_R * k, DOME_Y + d[1] * DOME_R * DOME_FY * k, d[2] * DOME_R * k];
+    }
+
+    // 沿"从花球中心出发的射线"做指数抖动。原视频那种毛茸茸的放射状边缘就是
+    // 这么来的：大多数粒子几乎不动，少数被甩得很远，于是拉出一条条须。
+    // 一半往里甩，顺带把花与花之间的洞填上。
+    var SCAT = [0, 0, 0];
+    function scatterR(x, y, z, beta) {
+      var f = beta * -Math.log(rng() + 1e-6);
+      if (f > 0.45) f = 0.45;              // 长尾封顶，否则甩出去变成满屏雪点
+      if (rng() < 0.5) f = -f * 0.55;
+      SCAT[0] = x + x * f;
+      SCAT[1] = y + (y - DOME_Y) * f;
+      SCAT[2] = z + z * f;
+      return SCAT;
+    }
+
+    /* ---------- 1. 花头 ----------
+       照着真实玫瑰的正面结构做，不是一个红盘子：
+       - 花瓣分 4 轮，从外到内 5 / 6 / 7 / 9 片，逐轮变小、错开半格；
+       - 外轮是少数几片大瓣，向外翻卷（reflex），所以正面轮廓是**星形有缺口**的，
+         不是一个圆——这一点决定了远看能不能认出"这是朵花"；
+       - 花心是很小一个紧卷的锥，颜色最深最饱和；
+       - 瓣缘接光偏白，瓣根压在别的瓣底下是暗的。
+       尺寸对着原视频量的：单朵约占花球宽的 11~14%。 */
+    var WHORL = [5, 6, 7, 9];          // 由外到内每轮的瓣数
+    var WHORL_R = [1.00, 0.70, 0.46, 0.26];   // 每轮的半径尺度
+    var WHORL_REFLEX = [-0.26, -0.06, 0.30, 0.72];  // 负=向外翻卷，正=向内合拢
+    var nRose = Math.floor(N * 0.425);
+    var perRose = Math.floor(nRose / ROSES);
+
+    // 各轮的粒子配额。不能按面积（rw²）分——那样最内轮只剩 4% 的粒子，
+    // 花心就没了。真实玫瑰花心的瓣叠得最密，所以这里只给外轮很轻的加权。
+    var wArea = [], wSum = 0;
+    for (var wi = 0; wi < WHORL.length; wi++) {
+      var a0 = 0.50 + 0.50 * WHORL_R[wi];
+      wArea.push(a0); wSum += a0;
+    }
+
+    for (var ri = 0; ri < ROSES; ri++) {
+      var d = capDir(ri, ROSES, 0.32);
+      var c = domePos(d, 0.50 + rng() * 0.34);
+      var hr = HEAD_R * (0.72 + rng() * 0.56);
+
+      // 花头朝向：沿球冠法线，略带随机倾斜
+      var ux = d[0] + (rng() - 0.5) * 0.30;
+      var uy = d[1] + (rng() - 0.5) * 0.22 + 0.10;
+      var uz = d[2] + (rng() - 0.5) * 0.30;
+      var ul = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1;
+      ux /= ul; uy /= ul; uz /= ul;
+
+      var ax = 0, ay = 0, az0 = 1;
+      if (Math.abs(uz) > 0.9) { ax = 1; az0 = 0; }
+      var rx = uy * az0 - uz * ay, ry = uz * ax - ux * az0, rz = ux * ay - uy * ax;
+      var rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
+      rx /= rl; ry /= rl; rz /= rl;
+      var fx = uy * rz - uz * ry, fy = uz * rx - ux * rz, fz = ux * ry - uy * rx;
+
+      var spin = rng() * TAU;
+      var squash = 0.88 + rng() * 0.22;   // 每朵略微椭圆，免得排成一片正圆
+      var open = 0.72 + rng() * 0.56;     // 有的开得平，有的还收着
+
+      for (var k = 0; k < perRose; k++) {
+        // 选一轮
+        var pick = rng() * wSum, wsel = 0, acc = 0;
+        for (var ws = 0; ws < wArea.length; ws++) {
+          acc += wArea[ws];
+          if (pick <= acc) { wsel = ws; break; }
+        }
+        var np = WHORL[wsel];
+        var rw = WHORL_R[wsel];
+        var refl = WHORL_REFLEX[wsel];
+
+        // 选这一轮里的哪一片瓣。相邻两轮错开半格，瓣才互相盖住缝
+        var pi2 = Math.floor(rng() * np);
+        var pa = (pi2 + (wsel % 2) * 0.5) * TAU / np + spin + wsel * 0.42;
+
+        // 瓣内坐标：tt 从瓣根到瓣尖，uu 横跨瓣宽
+        var tt = Math.pow(rng(), 0.62);
+        var uu = rng() * 2 - 1;
+        // 瓣形：根部窄、中段最宽、尖端略收——这样瓣与瓣之间才留得出缺口
+        var wprof = Math.pow(Math.sin(Math.PI * Math.pow(tt, 0.72)), 0.48);
+        var hw = (Math.PI / np) * 1.16;
+        var aa = pa + uu * hw * wprof;
+
+        var rr = hr * rw * (0.26 + 0.80 * tt);
+
+        // 沿花头法线的高度：
+        //   花心是个锥（越靠内越高）；每片瓣自身兜成浅碗（两侧比中间高）；
+        //   瓣尖按 refl 翻卷——外轮往外往下翻，内轮往里合拢
+        var ly = hr * open * (
+              0.62 * Math.pow(1 - rw, 1.30)              // 花心的锥
+            + 0.15 * rw * uu * uu * wprof                // 兜起来的碗
+            + 0.34 * refl * rw * Math.pow(tt, 2.1)       // 瓣尖翻卷
+        );
+        ly += hr * (rng() - 0.5) * 0.070;                // 花瓣有厚度
+
+        var lx = Math.cos(aa) * rr * squash;
+        var lz = Math.sin(aa) * rr / squash;
+
+        var px = c[0] + rx * lx + ux * ly + fx * lz;
+        var py = c[1] + ry * lx + uy * ly + fy * lz;
+        var pz = c[2] + rz * lx + uz * ly + fz * lz;
+        if (rng() < 0.45) {                     // 花瓣边缘化开，别像贴上去的红盘子
+          var sp1 = scatterR(px, py, pz, 0.070);
+          px = sp1[0]; py = sp1[1]; pz = sp1[2];
+        }
+
+        // 颜色按"到花心的距离"给：花心深珊瑚红 → 中段亮珊瑚 → 外瓣粉白。
+        // rad 用实际半径而不是轮号，跨轮才连得上
+        var cz = clamp((rw - 0.22) / 0.78, 0, 1);
+        cz = clamp(cz * (0.70 + 0.38 * tt), 0, 1);   // 同一片瓣，瓣尖比瓣根浅
+        var R, G, B;
+        // 颜色直接查照片的红玫瑰色板：花心取暗端，外瓣取亮端。
+        // 照片里的玫瑰是深勃艮第红，不是珊瑚色——这是这一版和粒子版最大的差别。
+        // 色相照搬照片的红玫瑰色板；**明暗层次单独给**。
+        // 照片里玫瑰整体就深，色板本身很窄，直接用会糊成一块平的红布，
+        // 一朵一朵的分界全没了。花心压暗、瓣缘提亮才看得出是花。
+        var c1 = purify(palAt(PAL_ROSE, 0.20 + cz * 0.80), 0.86);
+        var ramp = 0.14 + 1.62 * Math.pow(cz, 1.40);
+        R = c1[0] * GAIN_ROSE * ramp;
+        G = c1[1] * GAIN_ROSE * ramp;
+        B = c1[2] * GAIN_ROSE * ramp;
+        // 瓣缘那道翻卷的边接光。只给外轮——内轮也加就把花心洗白了
+        if (rw > 0.60) {
+          var rim = Math.pow(Math.abs(uu), 3.2) * (0.34 + 0.46 * tt);
+          R += (252 - R) * rim * 0.46;
+          G += (138 - G) * rim * 0.46;
+          B += (132 - B) * rim * 0.46;
+        }
+
+        // 瓣根压在别的瓣底下 → 暗；瓣面朝外 → 亮
+        var sh = ROSE_GAIN * (0.34 + 0.66 * Math.pow(tt, 0.70))
+                           * (0.87 + 0.20 * uu * uu);
+        var lit = 0.70 + 0.30 * (px * 0.6 + py * 0.8);
+        sh *= clamp(lit, 0.50, 1.30);
+        push(px, py, pz, R * sh, G * sh, B * sh, rng() < 0.16);
+      }
+    }
+
+    /* ---------- 2. 花肉：把花与花之间塞满的满天星绒毛 ----------
+       原视频整团是连续的，没有黑洞。三个要点缺一不可：
+       - **多**：不够就是一堆黑窟窿，花头看着像贴上去的；
+       - **暗**：亮了会把花头加色冲成粉白，红就没了；
+       - **待在花头那层壳里**：埋进深处只是加一层均匀底光，填不到缝。 */
+    var nShell = Math.floor(N * 0.275);
+    // 一簇一簇地放，不是均匀撒。满天星本来就是一小球一小球的，
+    // 均匀随机会渲染成一个光滑的白球——原视频那种绒毛感全靠这个成簇。
+    var shClu = Math.max(220, Math.floor(nShell / 26));
+    var perSh = Math.floor(nShell / shClu);
+    for (var ci2 = 0; ci2 < shClu; ci2++) {
+      var dsh = capDir(ci2 * 3 + 1, shClu * 3, 1.15);
+      // 体内均匀（k 取立方根）= 实心。铺成壳投影出来就是一个亮环加一个空心。
+      // 正中会不会烧白是曝光问题（SPLAT / e2），别拿挖空去治。
+      var ksh = 0.06 + Math.cbrt(rng()) * 0.96;
+      var cpp = domePos(dsh, ksh);
+      var low = clamp((0.34 - cpp[1]) * 1.7, 0, 1);   // 越靠下越暗
+      var puffR = 0.030 + rng() * 0.062;
+      var cluE = 0.60 + 0.52 * ksh;
+      // 花与花之间用照片里的**奶油牛皮纸色**当浅色场，掺三成绿叶。
+      // 全填成绿的话整团是深红压深绿，一片糊；深红花朵浮在浅色场里才分得开——
+      // 这正是原粒子版好看的原因，只是这里的浅色取自照片而不是凭空的白。
+      var kind = rng();
+      var isLeaf = kind < 0.30, isRose = kind > 0.94;
+      var cf, gf;
+      if (isRose) {
+        cf = purify(palAt(PAL_ROSE, 0.10 + 0.32 * rng()), 0.86); gf = GAIN_ROSE;
+      } else if (isLeaf) {
+        cf = purify(palAt(PAL_LEAF, (0.20 + 0.62 * rng()) * (1 - low * 0.40)), 0.46);
+        gf = GAIN_LEAF;
+      } else {
+        cf = palAt(PAL_WRAP, (0.30 + 0.66 * rng()) * (1 - low * 0.34)); gf = GAIN_WRAP;
+      }
+      var fR = cf[0] * gf, fG = cf[1] * gf, fB = cf[2] * gf;
+      for (var q2 = 0; q2 < perSh; q2++) {
+        var qa = rng() * TAU, qb = Math.acos(rng() * 2 - 1), qs = Math.sin(qb);
+        var qr = puffR * Math.pow(rng(), 0.40);
+        var e2 = (0.115 + 0.205 * rng()) * cluE;
+        var sp2 = scatterR(cpp[0] + qs * Math.cos(qa) * qr,
+                           cpp[1] + Math.cos(qb) * qr,
+                           cpp[2] + qs * Math.sin(qa) * qr, 0.105);
+        push(sp2[0], sp2[1], sp2[2], fR * e2, fG * e2, fB * e2, rng() < 0.22);
+      }
+    }
+
+
+    /* ---------- 3. 蓝星花：夹在花头之间的小簇冷色亮点 ----------
+       照片里点缀花束的是蓝星花，一小簇一小簇的淡蓝白，
+       正好在满眼深红里跳出来。原粒子版这里是白色满天星。 */
+    var nGyp = Math.floor(N * 0.105);
+    var clusters = Math.max(90, Math.floor(nGyp / 30));
+    var perCl = Math.floor(nGyp / clusters);
+    for (var ci = 0; ci < clusters; ci++) {
+      var dg = capDir(ci * 5 + 2, clusters * 5, 0.50);
+      var cgp = domePos(dg, 0.20 + Math.sqrt(rng()) * 0.88);
+      var puff = 0.026 + rng() * 0.038;
+      // 一簇同一个色阶，簇与簇之间才有明暗层次
+      var cs2 = palAt(PAL_STAR, 0.28 + 0.68 * rng());
+      var sR = cs2[0] * GAIN_STAR, sG = cs2[1] * GAIN_STAR, sB = cs2[2] * GAIN_STAR;
+      for (var g2 = 0; g2 < perCl; g2++) {
+        var a1 = rng() * TAU, a2 = Math.acos(rng() * 2 - 1);
+        var rq = puff * Math.pow(rng(), 0.42);
+        var sa1 = Math.sin(a2);
+        var bright = 0.26 + 0.40 * rng();
+        var sp3 = scatterR(cgp[0] + sa1 * Math.cos(a1) * rq,
+                           cgp[1] + Math.cos(a2) * rq,
+                           cgp[2] + sa1 * Math.sin(a1) * rq, 0.130);
+        push(sp3[0], sp3[1], sp3[2], sR * bright, sG * bright, sB * bright,
+             rng() < 0.14);
+      }
+    }
+
+    /* ---------- 3b. 花球内胆：让花团不透光 ---------- */
+    var nBody = Math.floor(N * 0.022);
+    for (var bd2 = 0; bd2 < nBody; bd2++) {
+      var db = capDir(bd2, nBody, 1.6);
+      var kb = 0.18 + Math.pow(rng(), 0.45) * 0.60;
+      var bp = domePos(db, kb);
+      var ib = (0.17 + 0.30 * rng()) * (0.45 + 0.55 * kb);
+      // 内胆只是防透光，用花球本身的暗色，不能再是白的
+      var cb2 = rng() < 0.62 ? purify(palAt(PAL_ROSE, 0.05 + 0.30 * rng()), 0.86)
+                             : purify(palAt(PAL_LEAF, 0.05 + 0.30 * rng()), 0.52);
+      push(bp[0], bp[1], bp[2], cb2[0] * ib, cb2[1] * ib, cb2[2] * ib, false);
+    }
+
+    /* ---------- 3c. 花团与纸口之间的过渡裙边 ---------- */
+    var nSkirt = Math.floor(N * 0.032);
+    for (var sk = 0; sk < nSkirt; sk++) {
+      var tsk = rng();
+      var ask = rng() * TAU;
+      var rsk = WRAP_R * (0.70 + tsk * 1.70);
+      var ysk = -0.09 - tsk * 0.20 + (rng() - 0.5) * 0.14;
+      var esk = (0.20 + 0.34 * rng()) * (1 - tsk * 0.35);
+      // 花球下缘往纸口过渡：外圈偏纸色，内圈偏叶色
+      var ck = rng() < 0.52 ? palAt(PAL_LEAF, 0.25 + 0.55 * rng())
+                            : palAt(PAL_WRAP, 0.20 + 0.55 * rng());
+      push(Math.cos(ask) * rsk, ysk, Math.sin(ask) * rsk,
+           ck[0] * esk * 1.25, ck[1] * esk * 1.25, ck[2] * esk * 1.25, false);
+    }
+
+
+    /* ---------- 4. 外缘雾气 + 放射花丝：毛茸茸的轮廓 ---------- */
+    AMB_ON = 1;   // 这一段之后都是"周围飘的"，渲染时会随时间漂移 + 明灭
+    var nHaze = Math.floor(N * 0.026);
+    var fil = Math.floor(nHaze * 0.50);
+    var nMist = nHaze - fil;
+    for (var h = 0; h < nMist; h++) {
+      var dh = capDir(h, nMist, 1.4);
+      var hp = domePos(dh, 0.66 + Math.pow(rng(), 1.15) * 0.52);
+      var bh2 = 0.11 + 0.26 * rng();
+      var sp4 = scatterR(hp[0], hp[1], hp[2], 0.160);
+      var ch2 = palAt(PAL_WRAP, 0.55 + 0.42 * rng());
+      push(sp4[0], sp4[1], sp4[2], ch2[0] * bh2, ch2[1] * bh2, ch2[2] * bh2, false);
+    }
+    var fStrands = Math.max(60, Math.floor(fil / 14));
+    var perF = Math.floor(fil / fStrands);
+    for (var st2 = 0; st2 < fStrands; st2++) {
+      var ds = capDir(st2 * 7 + 3, fStrands, 0.8);
+      var bend = (rng() - 0.5) * 0.5;
+      var reach = 0.14 + rng() * 0.26;
+      for (var fp = 0; fp < perF; fp++) {
+        var tf = rng();
+        var sp = domePos(ds, 0.90 + tf * reach);
+        var wob = Math.sin(tf * 4.0 + st2) * 0.030 * tf;
+        var bf = (0.52 - tf * 0.30) * (0.6 + 0.8 * rng());
+        var cf2 = palAt(PAL_WRAP, 0.62 + 0.36 * rng());
+        push(sp[0] + wob, sp[1] + bend * tf * 0.10, sp[2] + wob * 0.7,
+             cf2[0] * bf, cf2[1] * bf, cf2[2] * bf, false);
+      }
+    }
+
+    AMB_ON = 0;   // 回到花束本体
+    /* ---------- 5. 叶片：灰绿，短，塞在花球下缘 ---------- */
+    var nLeaf = Math.floor(N * 0.062);
+    var LEAVES = 78;
+    var perLeaf = Math.floor(nLeaf / LEAVES);
+    for (var li = 0; li < LEAVES; li++) {
+      var tl = (li + 0.5) / LEAVES;
+      var phl = 1.16 + tl * 0.52 + (rng() - 0.5) * 0.20;
+      var thl = li * 2.39996323 + rng() * 0.4;
+      var dlx = Math.sin(phl) * Math.cos(thl);
+      var dly = Math.cos(phl);
+      var dlz = Math.sin(phl) * Math.sin(thl);
+      var base = domePos([dlx, dly, dlz], 0.74);
+      var len = 0.13 + rng() * 0.17;
+      var ex = dlx, ey = dly - 0.40, ez = dlz;
+      var el2 = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1;
+      ex /= el2; ey /= el2; ez /= el2;
+      var sx2 = -dlz, sz2 = dlx;
+      var sl2 = Math.sqrt(sx2 * sx2 + sz2 * sz2) || 1;
+      sx2 /= sl2; sz2 /= sl2;
+      for (var lp = 0; lp < perLeaf; lp++) {
+        var av = rng();
+        var wv = (rng() * 2 - 1) * Math.sin(av * Math.PI) * 0.85;
+        var vein = 1 - Math.abs(wv) * 1.5;
+        var bl = (0.30 + 0.34 * vein) * (0.6 + 0.5 * rng());
+        // 叶脉亮、叶缘暗，直接用亮度位置去查叶色板
+        var cl2 = purify(palAt(PAL_LEAF, clamp(0.22 + 0.70 * vein + 0.14 * rng(), 0, 1)), 0.52);
+        push(base[0] + ex * av * len + sx2 * wv * len + (rng() - 0.5) * 0.05,
+             base[1] + ey * av * len - av * av * 0.05 + (rng() - 0.5) * 0.05,
+             base[2] + ez * av * len + sz2 * wv * len + (rng() - 0.5) * 0.05,
+             cl2[0] * bl * GAIN_LEAF, cl2[1] * bl * GAIN_LEAF, cl2[2] * bl * GAIN_LEAF,
+             false);
+      }
+    }
+
+    /* ---------- 6. 包装纸：窄锥 + 折面高光 ---------- */
+    var nWrap = Math.floor(N * 0.042);
+    for (var w = 0; w < nWrap; w++) {
+      var tw = Math.pow(rng(), 0.55);
+      var yw = WRAP_TIP + (WRAP_TOP - WRAP_TIP) * tw;
+      var aw = rng() * TAU;
+      var fold = Math.cos(FOLDS * aw + tw * 1.2);
+      // 六成粒子塞进锥体内部，锥面才不会只剩一圈亮边框住一块黑
+      var inner = rng() < 0.60 ? (0.25 + 0.75 * rng()) : 1;
+      var rw = (0.048 + Math.pow(tw, 1.5) * WRAP_R) * (1 + 0.16 * fold) * inner;
+      var ridge = Math.abs(fold);
+      var lip = tw > 0.88 ? 1.8 : 1.0;                     // 纸口亮边
+      var lit2 = 0.46 + 0.54 * Math.cos(aw - 0.9);
+      var bw2 = (0.34 + 0.34 * ridge) * lit2 * lip * (0.7 + 0.5 * rng()) * (inner < 1 ? 0.78 : 1);
+      var cw2 = palAt(PAL_WRAP, clamp(0.28 + 0.58 * ridge + 0.16 * rng(), 0, 1));
+      push(Math.cos(aw) * rw, yw, Math.sin(aw) * rw,
+           cw2[0] * bw2 * GAIN_WRAP, cw2[1] * bw2 * GAIN_WRAP, cw2[2] * bw2 * GAIN_WRAP,
+           rng() < 0.10);
+    }
+
+    /* ---------- 7. 花茎与缎带 ---------- */
+    var nStem = Math.floor(N * 0.030);
+    var nRib = Math.floor(nStem * 0.26);
+    var STRANDS = 15;
+    for (var sti = 0; sti < nStem - nRib; sti++) {
+      var si = sti % STRANDS;
+      var sa2 = si / STRANDS * TAU + 0.3;
+      var ts = rng();
+      var spread = 0.058 + ts * 0.075;
+      var bs = (0.50 + 0.50 * Math.cos(sa2 - 0.9)) * (0.6 + 0.6 * rng());
+      var glint = rng() < 0.14;
+      var cst = glint ? palAt(PAL_WRAP, 0.55 + 0.40 * rng())
+                      : palAt(PAL_LEAF, 0.05 + 0.28 * rng());
+      push(Math.cos(sa2) * spread + Math.sin(ts * 2.2 + si) * 0.014,
+           -0.54 - ts * 0.48,
+           Math.sin(sa2) * spread + Math.cos(ts * 1.9 + si) * 0.014,
+           cst[0] * bs, cst[1] * bs, cst[2] * bs, false);
+    }
+    for (var rb = 0; rb < nRib; rb++) {
+      var ab = rng() * TAU;
+      var tb = rng();
+      var rrb = 0.074 + Math.sin(tb * Math.PI) * 0.028;
+      var bb = (0.55 + 0.45 * Math.cos(ab - 0.9)) * (0.55 + 0.4 * rng());
+      // 照片里束口是米色拉菲草，不是红缎带
+      var crb = palAt(PAL_WRAP, 0.35 + 0.50 * rng());
+      push(Math.cos(ab) * rrb, -0.60 + tb * 0.085, Math.sin(ab) * rrb,
+           crb[0] * bb, crb[1] * bb, crb[2] * bb, rng() < 0.10);
+    }
+
+    /* ---------- 8. 飘散尘埃：贴着花团，别撒满整个盒子 ---------- */
+    AMB_ON = 1;
+    while (n < N) {
+      var ad = rng() * TAU;
+      var dd = capDir((n * 13) % 997, 997, 2.0);
+      var rd = 1.00 + Math.pow(rng(), 3.0) * 0.40;
+      var dp = domePos(dd, rd);
+      var bd3 = 0.10 + rng() * 0.28;
+      var cd2 = palAt(PAL_WRAP, 0.60 + 0.38 * rng());
+      push(dp[0] + Math.cos(ad) * 0.02, dp[1] - rng() * 0.5, dp[2],
+           cd2[0] * bd3, cd2[1] * bd3, cd2[2] * bd3, false);
+    }
+
+
+    AMB_ON = 0;
+
+    // 洗牌：render 里按性能降档时是直接截断数组尾巴的，
+    // 不打乱的话会把整段花茎和包装纸一次性砍掉。
+    var A = [tx, ty, tz, ox, oy, oz, cr, cg, cb, dl];
+    for (var q = n - 1; q > 0; q--) {
+      var w2 = (rng() * (q + 1)) | 0;
+      for (var ai = 0; ai < A.length; ai++) {
+        var arr = A[ai], tmp = arr[q]; arr[q] = arr[w2]; arr[w2] = tmp;
+      }
+      var tb2 = bg[q]; bg[q] = bg[w2]; bg[w2] = tb2;
+      var ta2 = am[q]; am[q] = am[w2]; am[w2] = ta2;
+    }
+
+    COUNT = n;
+    return { am: am, tx: tx, ty: ty, tz: tz, ox: ox, oy: oy, oz: oz,
+             cr: cr, cg: cg, cb: cb, dl: dl, bg: bg };
+  }
+
+  /* ============================================================
+     画布与缓冲
+     ============================================================ */
+  var W = 0, H = 0;
+  var bcv, bctx, bw, bh, img, u8, u32;
+  var scv, sctx, sw, sh;
+  var gcv, gctx;
+  var bgc = null;   // 预渲染的冷调背景渐变，一帧一次 drawImage，零额外开销
+  var scale = 1, cx = 0, cy = 0;
+
+  var JIT = new Float32Array(JMASK + 4);
+  (function () {
+    var r = mulberry32(7788);
+    for (var i = 0; i < JIT.length; i++) JIT[i] = (r() - 0.5) * 2;
+  })();
+
+  function setupCanvas() {
+    var rect = stage.getBoundingClientRect();
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var vw = Math.max(280, Math.round(rect.width * dpr));
+    var vh = Math.max(280, Math.round(rect.height * dpr));
+    // 总像素封顶：每帧要 putImageData + 三次全屏合成，像素太多手机会卡
+    var capPx = isMobile ? 460000 : 900000;
+    var f = Math.sqrt(capPx / (vw * vh));
+    if (f < 1) { vw = Math.round(vw * f); vh = Math.round(vh * f); }
+    W = vw; H = vh;
+    cv.width = W; cv.height = H;
+
+    // 粒子缓冲比屏幕小一档，再平滑放大回去。
+    // 一颗粒子于是覆盖 4 倍的屏幕面积，粒子之间那些黑缝才填得满——
+    // 原视频是连成一片的奶油质地，1:1 写单像素只会得到一层椒盐噪点。
+    // 顺带 putImageData 的像素少了四分之三，比原来还快。
+    bw = Math.max(2, W >> BUFDIV); bh = Math.max(2, H >> BUFDIV);
+    bcv = document.createElement("canvas");
+    bcv.width = bw; bcv.height = bh;
+    bctx = bcv.getContext("2d", { alpha: false });
+    img = bctx.createImageData(bw, bh);
+    u8 = img.data;
+    u32 = new Uint32Array(u8.buffer);
+
+    sw = Math.max(2, bw >> 1); sh = Math.max(2, bh >> 1);
+    scv = document.createElement("canvas");
+    scv.width = sw; scv.height = sh;
+    sctx = scv.getContext("2d", { alpha: false });
+
+    gcv = document.createElement("canvas");
+    gcv.width = W; gcv.height = H;
+    gctx = gcv.getContext("2d", { alpha: false });
+    gctx.imageSmoothingEnabled = true;
+    gctx.imageSmoothingQuality = "high";
+    gctx.fillStyle = "#000";
+    gctx.fillRect(0, 0, W, H);
+
+    // 背景：保持近黑的冷调（原视频底色偏蓝紫），中间偏上一团冷光 + 底部一丝暖意
+    bgc = document.createElement("canvas");
+    bgc.width = W; bgc.height = H;
+    var bg = bgc.getContext("2d");
+    var g1 = bg.createRadialGradient(W * 0.5, H * 0.40, 0, W * 0.5, H * 0.40, Math.max(W, H) * 0.62);
+    g1.addColorStop(0, "rgba(36,28,70,0.16)");
+    g1.addColorStop(0.5, "rgba(17,13,36,0.07)");
+    g1.addColorStop(1, "rgba(0,0,0,0)");
+    bg.fillStyle = g1;
+    bg.fillRect(0, 0, W, H);
+    var g2 = bg.createRadialGradient(W * 0.5, H * 0.62, 0, W * 0.5, H * 0.62, Math.min(W, H) * 0.52);
+    g2.addColorStop(0, "rgba(54,17,28,0.09)");
+    g2.addColorStop(1, "rgba(0,0,0,0)");
+    bg.fillStyle = g2;
+    bg.fillRect(0, 0, W, H);
+
+    // 横屏按高度装下整个立方体；竖屏按宽度让花束占满画面，
+    // 盒子的角会被切掉一点——视频里本来也是这样的取景。
+    var portrait = bh > bw * 1.1;
+    // 竖屏按宽度放到最大，让花束占满画面——盒子的角会被切掉，
+    // 视频里本来就是这个取景。之前按"整个盒子都要装下"算，
+    // 手机上花束只有屏高的三分之一，主体太小。
+    scale = portrait ? bw * 0.430 : Math.min(bw * 0.315, bh * 0.3533);
+    cx = bw * 0.5;
+    cy = bh * (portrait ? 0.455 : 0.495);
+  }
+
+  /* ============================================================
+     相机与线框盒
+     ============================================================ */
+  var az = 0.55, elv = ELEV;
+  var pxAim = 0, pyAim = 0, pxCur = 0, pyCur = 0;
+  // 拖动旋转：dragAz/dragEl 叠在自转之上；松手后惯性滑行，静置久了慢慢归零，
+  // 镜头回到自转。拖的时候不触发"点一下重播"。
+  var dragAz = 0, dragEl = 0, dragAzV = 0, dragElV = 0;
+  var dragging = false, dragMoved = false, dLastX = 0, dLastY = 0, dIdleAt = 0;
+
+  var BOXV = [];
+  for (var bi = 0; bi < 8; bi++) {
+    BOXV.push([(bi & 1) ? 1 : -1, (bi & 2) ? 1 : -1, (bi & 4) ? 1 : -1]);
+  }
+  var BOXE = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+
+  function drawBox(a, e, alphaMul, sc) {
+    var ca = Math.cos(a), sa = Math.sin(a), ce = Math.cos(e), se = Math.sin(e);
+    var k = W / bw;
+    var pts = [];
+    for (var i = 0; i < 8; i++) {
+      var v = BOXV[i];
+      var X = v[0] * ca - v[2] * sa;
+      var Z = v[0] * sa + v[2] * ca;
+      var Y = v[1] * ce + Z * se;
+      var D = -v[1] * se + Z * ce;
+      var s = FOV / (FOV + D);
+      pts.push([(cx + X * s * sc) * k, (cy - Y * s * sc) * k, D]);
+    }
+    ctx.lineWidth = Math.max(1, W / 1000);
+    ctx.lineCap = "round";
+    for (var j = 0; j < BOXE.length; j++) {
+      var p1 = pts[BOXE[j][0]], p2 = pts[BOXE[j][1]];
+      var md = (p1[2] + p2[2]) * 0.5;
+      var al = (0.42 - 0.22 * clamp((md + 1.5) / 3, 0, 1)) * alphaMul;
+      if (al <= 0.004) continue;
+      ctx.strokeStyle = "rgba(216,226,240," + al.toFixed(3) + ")";
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+      ctx.stroke();
+    }
+  }
+
+  /* ============================================================
+     主循环
+     ============================================================ */
+  var started = false, startT = 0, frame = 0, captionShown = false;
+  var drawCount = 0, msAvg = 16, rafId = 0;
+  var black = 1, fadePhase = "none", fadeT0 = 0;   // 黑场遮罩状态
+
+  function reset() {
+    startT = performance.now();
+    frame = 0;
+    captionShown = false;
+    caption.classList.remove("show");
+    replay.classList.remove("show");
+    gctx.globalCompositeOperation = "source-over";
+    gctx.globalAlpha = 1;
+    gctx.fillStyle = "#000";
+    gctx.fillRect(0, 0, W, H);
+  }
+
+  // 重开：先压黑场再淡入，对应原视频结尾的淡出黑场
+  function softReset() {
+    reset();
+    if (STILL || prefersReduced) { black = 0; fadePhase = "none"; return; }
+    black = 1;
+    fadePhase = "in";
+    fadeT0 = performance.now();
+  }
+
+  function render(now) {
+    rafId = requestAnimationFrame(render);
+    var t0 = performance.now();
+    var t = (now - startT) / 1000;
+    if (!started) t = 0;      // 没点之前定住，别让花在遮罩后面先开了
+    if (STILL) t = 9.0;
+
+    pxCur += (pxAim - pxCur) * 0.06;
+    pyCur += (pyAim - pyCur) * 0.06;
+
+    // 黑场节奏：淡入 → 绽放 → 静置 → 淡出 → 重开
+    if (fadePhase === "in") {
+      black = Math.max(0, 1 - (now - fadeT0) / 1000 / FADE_SEC);
+      if (black <= 0) { black = 0; fadePhase = "none"; }
+    } else if (fadePhase === "out") {
+      black = Math.min(1, (now - fadeT0) / 1000 / FADE_SEC);
+      if (black >= 1) { softReset(); return; }
+    } else if (LOOP_IDLE > 0 && captionShown && started && !STILL && !prefersReduced && t > 5.6 + LOOP_IDLE) {
+      fadePhase = "out";
+      fadeT0 = now;
+    }
+
+    // 拖动惯性 + 静置回正
+    if (!dragging) {
+      dragAz += dragAzV; dragEl += dragElV;
+      dragAzV *= 0.93; dragElV *= 0.93;
+      if (Math.abs(dragAzV) < 0.0002) dragAzV = 0;
+      if (Math.abs(dragElV) < 0.0002) dragElV = 0;
+      if (dragAzV === 0 && now - dIdleAt > 2600) {
+        dragAz *= 0.988; dragEl *= 0.988;   // 慢慢交还给自转
+      }
+    }
+    dragEl = clamp(dragEl, -0.55, 0.55);
+    var a = az + (STILL ? 0 : t * SPIN) + pxCur * 0.42 + dragAz;
+    // 呼吸式运镜：整体轻微推近拉远 + 上下浮动，模拟原视频的手持呼吸感
+    var breathe = 1 + 0.028 * Math.sin(t * 0.55) + 0.016 * Math.sin(t * 0.23 + 1.1);
+    var e = elv + pyCur * 0.16 + 0.020 * Math.sin(t * 0.31 + 0.6) + dragEl;
+    var sc = scale * breathe;
+    var ca = Math.cos(a), sa = Math.sin(a), ce = Math.cos(e), se = Math.sin(e);
+
+    u32.fill(0xFF000000);
+
+    var tx = P.tx, ty = P.ty, tz = P.tz;
+    var oxA = P.ox, oyA = P.oy, ozA = P.oz;
+    var crA = P.cr, cgA = P.cg, cbA = P.cb, dlA = P.dl, bgA = P.bg, amA = P.am;
+    var jitAmp = 0.010 + 0.004 * Math.sin(t * 0.7);
+    var f7 = (frame * 7) | 0;
+    var n = drawCount;
+    var bw4 = bw << 2;
+    var np4 = (bw * bh) << 2;
+    var bwm = bw - 1, bhm = bh - 1;
+
+    for (var i = 0; i < n; i++) {
+      var k = (t - dlA[i]) / RISE;
+      if (k <= 0) continue;
+      var px, py, pz, amp = 1;
+      if (k < 1) {
+        var qq = 1 - k;
+        var ee = 1 - qq * qq * qq;
+        px = oxA[i] + (tx[i] - oxA[i]) * ee;
+        py = oyA[i] + (ty[i] - oyA[i]) * ee;
+        pz = ozA[i] + (tz[i] - ozA[i]) * ee;
+        amp = 0.30 + 0.70 * ee;
+      } else {
+        px = tx[i]; py = ty[i]; pz = tz[i];
+      }
+
+      var ji = (i * 3 + f7) & JMASK;
+      px += JIT[ji] * jitAmp;
+      py += JIT[ji + 1] * jitAmp;
+      pz += JIT[ji + 2] * jitAmp;
+
+      var X = px * ca - pz * sa;
+      var Z = px * sa + pz * ca;
+      var Y = py * ce + Z * se;
+      var D = -py * se + Z * ce;
+
+      var s = FOV / (FOV + D);
+      var fpx = cx + X * s * sc;
+      var fpy = cy - Y * s * sc;
+      var sx = fpx | 0, sy = fpy | 0;
+      if (sx < 0 || sx >= bwm || sy < 0 || sy >= bhm) continue;
+
+      var gmul = INT * amp * (0.52 + 0.78 * (s - 0.72));
+      if (gmul <= 0) continue;
+      var idx = (sy * bw + sx) << 2;
+      // 高光软拐点：越亮加得越少，密的地方压成米白而不是硬切到死白。
+      // 用 R 通道当亮度代理（这套配色里 R 恒为最高通道）。
+      // 有明确上限的软削波：累积值渐近到 1/KNEE 就停。
+      // 原来那版 kk 有 0.08 的下限，等于没有上限，会一直往上爬。
+      var kk = 1 - u8[idx] * KNEE;
+      if (kk < 0) kk = 0;
+      var g2 = gmul * kk;
+      var vr = crA[i] * g2, vg = cgA[i] * g2, vb = cbA[i] * g2;
+
+      // 双线性铺到 2x2。原视频是 tkinter 的 create_rectangle，一颗占好几个
+      // 像素，所以整团是连片的实体；只写单像素会稀成一层噪点，花形就没了。
+      // 近处的颗粒铺得更开一点，等效于点精灵的透视缩放。
+      var wx = fpx - sx, wy = fpy - sy;
+      var sprd = SPLAT * (0.80 + 0.55 * (s - 0.72));
+      var e0 = (1 - wx) * (1 - wy) * sprd, e1 = wx * (1 - wy) * sprd;
+      var e2 = (1 - wx) * wy * sprd,       e3 = wx * wy * sprd;
+      var j1 = idx + 4, j2 = idx + bw4, j3 = j2 + 4;
+      u8[idx] += vr * e0; u8[idx + 1] += vg * e0; u8[idx + 2] += vb * e0;
+      u8[j1]  += vr * e1; u8[j1 + 1]  += vg * e1; u8[j1 + 2]  += vb * e1;
+      u8[j2]  += vr * e2; u8[j2 + 1]  += vg * e2; u8[j2 + 2]  += vb * e2;
+      u8[j3]  += vr * e3; u8[j3 + 1]  += vg * e3; u8[j3 + 2]  += vb * e3;
+      if (bgA[i]) {
+        // 大颗粒再往外糊一圈，等于 3x3 的方块
+        var h1 = vr * 0.42 * sprd, h2 = vg * 0.42 * sprd, h3 = vb * 0.42 * sprd;
+        if (sx > 0) { var jl = idx - 4; u8[jl] += h1; u8[jl + 1] += h2; u8[jl + 2] += h3; }
+        if (sy > 0) { var ju = idx - bw4; u8[ju] += h1; u8[ju + 1] += h2; u8[ju + 2] += h3; }
+      }
+    }
+
+    // 加色合成会把颜色越叠越白，堆不出"深红"。这里在整帧累积完之后统一
+    // 把偏红像素的绿蓝压下去，等效于"厚的红花团会吸收绿蓝光"。
+    // 必须放在这里、不能放进写入循环——循环里先写的粒子看到的累积量还很小，
+    // 而粒子数组是洗过牌的，等于一半的粒子逃过了压制。
+    // 只作用于本来就偏红的像素，不然奶油色的包装纸也会被一起压掉。
+    if (EXT > 0) {
+      for (var pi = 0; pi < np4; pi += 4) {
+        var R0 = u8[pi], G0 = u8[pi + 1];
+        if (R0 < 46 || G0 >= R0) continue;
+        var redness = (R0 - G0) / (R0 + 1);
+        if (redness < 0.14) continue;
+        var f2 = 1 - redness * R0 * EXT;
+        if (f2 < 0.22) f2 = 0.22;
+        u8[pi + 1] = G0 * f2;
+        u8[pi + 2] = u8[pi + 2] * f2;
+      }
+    }
+
+    bctx.putImageData(img, 0, 0);
+
+    sctx.globalCompositeOperation = "copy";
+    sctx.drawImage(bcv, 0, 0, sw, sh);
+
+    gctx.globalCompositeOperation = "source-over";
+    gctx.globalAlpha = 1;
+    gctx.fillStyle = "rgba(0,0,0," + FADE + ")";
+    gctx.fillRect(0, 0, W, H);
+    gctx.globalCompositeOperation = "lighter";
+    gctx.drawImage(bcv, 0, 0, W, H);
+    gctx.globalAlpha = BLOOM;
+    gctx.drawImage(scv, 0, 0, W, H);
+    gctx.globalAlpha = 1;
+
+    ctx.globalCompositeOperation = "copy";
+    ctx.drawImage(gcv, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    if (bgc) ctx.drawImage(bgc, 0, 0);
+    drawBox(a, e, clamp(t * 0.5, 0, 1), sc);
+
+    // 结尾淡出黑场 / 开场淡入
+    if (black > 0.004) {
+      ctx.globalAlpha = black;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+
+    if (!captionShown && t > 5.6) {
+      captionShown = true;
+      caption.classList.add("show");
+      replay.classList.add("show");
+    }
+
+    var ms = performance.now() - t0;
+    msAvg += (ms - msAvg) * 0.05;
+    if (frame > 40 && (frame & 31) === 0) {
+      if (msAvg > 30 && drawCount > COUNT * 0.45) drawCount = Math.floor(drawCount * 0.90);
+      else if (msAvg < 17 && drawCount < COUNT) drawCount = Math.min(COUNT, Math.floor(drawCount * 1.06) + 800);
+    }
+    frame++;
+    window.__rose = { ms: msAvg, draw: drawCount, total: COUNT, black: black, phase: fadePhase, t: t };
+  }
+
+  /* ============================================================
+     启动
+     ============================================================ */
+  function boot() {
+    setupCanvas();
+    P = buildBouquet(budget());
+    drawCount = COUNT;
+    reset();
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(render);
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    gate.classList.add("gone");
+    if (STILL || prefersReduced) { black = 0; fadePhase = "none"; }
+    else { black = 1; fadePhase = "in"; fadeT0 = performance.now(); }
+    reset();
+  }
+
+  gate.addEventListener("click", start);
+  gate.addEventListener("touchend", function (ev) { ev.preventDefault(); start(); }, { passive: false });
+  replay.addEventListener("click", function (ev) { ev.stopPropagation(); softReset(); });
+  cv.addEventListener("click", function () {
+    if (started && !dragMoved) softReset();
+  });
+
+  function dragStart(x, y) {
+    dragging = true; dragMoved = false;
+    dLastX = x; dLastY = y; dragAzV = 0; dragElV = 0;
+    dIdleAt = performance.now();
+  }
+  function dragMove(x, y) {
+    if (!dragging) return;
+    var dx = x - dLastX, dy = y - dLastY;
+    if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+    dragAz -= dx * 0.0058;
+    dragEl = clamp(dragEl + dy * 0.0034, -0.55, 0.55);
+    dragAzV = -dx * 0.0011;
+    dragElV = dy * 0.0006;
+    dLastX = x; dLastY = y;
+    dIdleAt = performance.now();
+  }
+  function dragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    dIdleAt = performance.now();
+    // 松手后一小会儿再允许"点一下重播"，免得拖完手一松就重播了
+    setTimeout(function () { dragMoved = false; }, 260);
+  }
+  cv.addEventListener("pointerdown", function (ev) {
+    cv.setPointerCapture(ev.pointerId); dragStart(ev.clientX, ev.clientY);
+  });
+  cv.addEventListener("pointermove", function (ev) { dragMove(ev.clientX, ev.clientY); });
+  cv.addEventListener("pointerup", dragEnd);
+  cv.addEventListener("pointercancel", dragEnd);
+  window.addEventListener("blur", dragEnd);
+
+  function aim(clientX, clientY) {
+    var r = stage.getBoundingClientRect();
+    pxAim = clamp((clientX - r.left) / r.width * 2 - 1, -1, 1);
+    pyAim = clamp((clientY - r.top) / r.height * 2 - 1, -1, 1);
+  }
+  window.addEventListener("mousemove", function (ev) { aim(ev.clientX, ev.clientY); });
+  window.addEventListener("touchmove", function (ev) {
+    if (ev.touches[0]) aim(ev.touches[0].clientX, ev.touches[0].clientY);
+  }, { passive: true });
+
+  var rt = 0;
+  window.addEventListener("resize", function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () { setupCanvas(); reset(); }, 200);
+  });
+
+  boot();
+  if (AUTOPLAY || STILL) start();
+})();
+</script>
+</body>
+</html>

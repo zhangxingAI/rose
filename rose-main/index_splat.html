@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" href="data:,">
+<title>七夕快乐</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000;
+    overscroll-behavior: none; user-select: none; -webkit-user-select: none;
+  }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    touch-action: none;
+  }
+  .stage { position: fixed; inset: 0; background: #000; overflow: hidden; }
+  #canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  /* 暗角：四角压暗，中上偏亮（原视频同款取景） */
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background:
+      radial-gradient(ellipse at 50% 44%, transparent 0 46%, rgba(0, 0, 2, .22) 76%, rgba(0, 0, 2, .62) 100%);
+  }
+  /* 开场/重开黑场遮罩 */
+  .blackout {
+    position: absolute; inset: 0; z-index: 4; pointer-events: none;
+    background: #000; opacity: 1;
+    transition: opacity .9s ease;
+  }
+  .caption {
+    position: absolute; left: 50%; bottom: 12%; z-index: 5;
+    width: 88%; transform: translateX(-50%);
+    text-align: center; pointer-events: none; opacity: 0;
+  }
+  .caption.show { opacity: 1; transition: opacity 2s ease; }
+  .caption h1 {
+    margin: 0; color: #f7efec; font-size: clamp(15px, 3vw, 24px); font-weight: 300;
+    letter-spacing: .3em; text-indent: .3em;
+    text-shadow: 0 0 18px rgba(255, 140, 120, .35);
+  }
+  .caption .name {
+    margin: 7px 0 0; color: #f0b8ac; font-size: clamp(12px, 2.3vw, 17px);
+    letter-spacing: .42em; text-indent: .42em; font-weight: 300;
+  }
+  .caption .sub {
+    margin: 9px 0 0; color: rgba(240, 226, 220, .5); font-size: clamp(10px, 1.7vw, 13px);
+    letter-spacing: .2em; text-indent: .2em;
+  }
+  #gate {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 45%, rgba(60, 14, 10, .20), rgba(0, 0, 0, .86) 72%);
+    cursor: pointer;
+  }
+  #gate.gone { opacity: 0; pointer-events: none; transition: opacity .9s ease; }
+  #gate h2 {
+    margin: 0; color: #f4ebe8; font-size: clamp(21px, 4.8vw, 38px); font-weight: 300;
+    letter-spacing: .34em; text-indent: .34em;
+  }
+  #gate p { margin: 15px 0 0; color: rgba(236, 208, 200, .62); font-size: 13px; letter-spacing: .1em; }
+  .pulse {
+    margin-top: 30px; width: 7px; height: 7px; border-radius: 50%;
+    background: #f0705c; box-shadow: 0 0 16px #e0503c;
+    animation: pulse 1.9s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { transform: scale(1.5); opacity: .8; } }
+  .replay {
+    position: fixed; z-index: 6;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    padding: 9px 18px; border-radius: 999px; font-size: 12px; letter-spacing: .2em; text-indent: .2em;
+    color: rgba(248, 224, 216, .7); background: rgba(24, 8, 6, .5);
+    border: 1px solid rgba(200, 90, 70, .26); opacity: 0; pointer-events: none;
+    transition: opacity .8s ease;
+  }
+  .replay.show { opacity: 1; pointer-events: auto; cursor: pointer; }
+  .wechat-hint {
+    position: fixed; z-index: 6;
+    top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    max-width: min(92vw, 420px); padding: 7px 12px; border-radius: 999px;
+    color: rgba(255, 226, 218, .5); font-size: 11px; letter-spacing: .08em; text-align: center;
+    background: rgba(10, 4, 3, .5); border: 1px solid rgba(180, 80, 60, .2);
+    opacity: 0; pointer-events: none;
+  }
+  .wechat-hint.show { opacity: 1; }
+  /* 渲染器自己的 UI 全部隐藏 */
+  #info, #quality, #caminfo, #progress, #instructions, #spinner { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <canvas id="canvas"></canvas>
+  <div class="vignette"></div>
+  <div class="blackout" id="blackout"></div>
+  <div class="caption" id="caption">
+    <h1>七夕快乐</h1>
+    <p class="name">徐雪莹</p>
+    <p class="sub">一束不会凋谢的玫瑰</p>
+  </div>
+</div>
+
+<div class="wechat-hint" id="wechatHint">若画面空白：右上角 ··· → 在浏览器打开</div>
+
+<div id="gate">
+  <h2>点一下，花开</h2>
+  <p id="gateSub">一束不会凋谢的玫瑰</p>
+  <p id="loadHint" style="display:none; font-size:12px; color:rgba(236,208,200,.45); margin-top:8px;">花束加载中…</p>
+  <div class="pulse"></div>
+</div>
+
+<div class="replay" id="replay">再绽放一次</div>
+
+<span id="fps" hidden></span>
+<span id="camid" hidden></span>
+<div id="message" hidden></div>
+<div id="progress" hidden></div>
+<div class="scene" id="spinner" hidden></div>
+
+<script src="static/splat-render.js"></script>
+<script>
+(function () {
+  "use strict";
+  var isWeChat = /MicroMessenger/i.test(navigator.userAgent);
+  var params = new URLSearchParams(location.search);
+  // Streamlit 外壳把页面塞进 iframe（srcdoc），里面读不到外层地址栏的
+  // hash 和 query，所以允许外壳先写一个 window.__ROSE_HASH 进来。
+  // 直接开这个文件时它是空的，不影响。
+  var shellHash = window.__ROSE_HASH || "";
+  var AUTOPLAY = params.get("play") === "1" || /play/i.test(location.hash) || /play/i.test(shellHash);
+  var STILL = params.get("still") === "1" || /still/i.test(location.hash) || /still/i.test(shellHash);
+
+  var gate = document.getElementById("gate");
+  var blackout = document.getElementById("blackout");
+  var caption = document.getElementById("caption");
+  var replayBtn = document.getElementById("replay");
+  var loadHint = document.getElementById("loadHint");
+  var wechatHint = document.getElementById("wechatHint");
+
+  if (isWeChat) wechatHint.classList.add("show");
+  if (STILL) {
+    gate.style.display = "none";
+    blackout.style.opacity = 0;
+  }
+
+  var started = false;
+
+  function showCaption() {
+    caption.classList.add("show");
+    replayBtn.classList.add("show");
+    wechatHint.classList.remove("show");
+  }
+
+  function fadeIn() { blackout.style.opacity = 0; }
+
+  function fadeOutThen(cb) {
+    blackout.style.opacity = 1;
+    setTimeout(cb, 700);
+  }
+
+  function startOnce() {
+    if (started) return;
+    started = true;
+    gate.classList.add("gone");
+    if (!STILL) {
+      fadeIn();
+      setTimeout(showCaption, 3200);
+    } else {
+      if (window.__splat) window.__splat.stopCarousel();
+      showCaption();
+    }
+  }
+
+  gate.addEventListener("click", startOnce);
+  gate.addEventListener("touchend", function (ev) { ev.preventDefault(); startOnce(); }, { passive: false });
+
+  replayBtn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (!started) return;
+    caption.classList.remove("show");
+    replayBtn.classList.remove("show");
+    fadeOutThen(function () {
+      if (window.__splat) window.__splat.resetCarousel();
+      fadeIn();
+      setTimeout(showCaption, 3200);
+    });
+  });
+
+  // 加载提示轮询：splat 没到位时给个文案
+  (function poll() {
+    if (window.__splat && window.__splat.loaded) { loadHint.style.display = "none"; return; }
+    if (started) loadHint.style.display = "block";
+    setTimeout(poll, 600);
+  })();
+
+  if (AUTOPLAY) startOnce();
+})();
+</script>
+</body>
+</html>
