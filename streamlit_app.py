@@ -30,7 +30,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 HERE = Path(__file__).parent
-PAGE = "index_photo.html"      # 粒子版
+PAGE = "index_splat.html"      # 粒子版
 
 CHROME_CSS = """
 [data-testid="stHeader"],
